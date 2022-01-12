@@ -1,0 +1,93 @@
+#Training an ANN (Artficial Neural Network) model with data of all alpha emitters in the NUBASE2020 database
+import numpy as np
+from keras.layers import Dense, Activation
+from keras.models import Sequential
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from keras.wrappers.scikit_learn import KerasRegressor
+from sklearn.model_selection import cross_val_score
+from numpy import sqrt
+from keras.callbacks import EarlyStopping
+import tensorflow as tf
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+# Load dataset
+filename = "/Users/admin/Documents/important/ANN Half-life.xlsx"
+dataframe = pd.read_excel(filename)
+X = dataframe[['A', 'Z', 'Qalpha', 'ell']]
+Y = dataframe['logTa']
+names=['A', 'Z', 'Qalpha', 'ell', 'logTa']
+
+# Split-out validation dataset
+validation_size = 0.20
+seed = 7
+X_train, X_test, Y_train, Y_test=train_test_split(X,Y,test_size=validation_size,random_state=seed)
+
+# Test options and evaluation metric
+num_folds = 10
+seed = 7
+scoring = 'neg_mean_squared_error'
+
+tf.random.set_seed(seed)
+
+#Scaling the data
+scaler = StandardScaler().fit(X_train)
+rescaledX = scaler.transform(X_train)
+
+#Creating the ANN model
+modelannlife=Sequential([
+    Dense(units = 50, activation = 'relu', input_dim = 4, kernel_initializer='normal'),
+    Dense(units = 100, activation = 'relu', kernel_initializer='normal'),
+    Dense(units = 50, activation = 'relu', kernel_initializer='normal'),
+    Dense(units = 1, kernel_initializer='normal'),
+])
+
+modelannlife.compile(optimizer = 'adam', loss = 'mean_squared_error')
+######################################
+
+#Fitting the ANN model to the rescaled data
+modelannlife.fit(x=rescaledX,y=Y_train,batch_size=32,epochs=800,validation_split = 0.1,shuffle=True,verbose=0)
+y_train_predict=modelannlife.predict(rescaledX)
+
+# transform the validation dataset
+rescaledX_test = scaler.transform(X_test)
+
+#Make prediction on the test set
+y_test_predict=modelannlife.predict(rescaledX_test)
+
+#Retriving the mean square error of the training and test dataset
+score_train = modelannlife.evaluate(rescaledX, Y_train, verbose=0)
+print('RMS error on training data = ', np.sqrt(score_train))
+score_test = modelannlife.evaluate(rescaledX_test, Y_test, verbose=0)
+
+#Visualizing the prediction made on the test set as compared to the actual outcome
+import seaborn as sns
+import numpy as np
+sns.set_theme()
+plt.plot(np.array(Y_test), color = 'red', label = 'Real data')
+plt.plot(y_test_predict, color = 'black', label = 'Predicted data')
+plt.title('Prediction')
+plt.legend()
+plt.show()
+
+#Using the trained ANN model to make predictions on data that the model has not encountered before, and the data has no known outcome (Y)
+#Importing the New data
+filename = "/Users/admin/Documents/important/CPPMCPPMT_Qws4rbf_unknown.csv"
+data2 = pd.read_csv(filename)
+X = data2[['A', 'Z', 'QWS4+RBF', 'ell']]
+#names=['A', 'Z', 'QWS4', 'ell', 'Texpt']
+
+#Rescaling the data and transforming it
+scaler = StandardScaler().fit(X_train)
+Xscaled=scaler.transform(X)
+
+#Using the ANN model to make prediction
+predict = modelannlife.predict(Xscaled)
+
+#Writing the predicted values to the dataframe
+data2['logTANN']=predict
+
+#Writing the new dataframe to a csv file
+data2.to_csv('CPPMCPPMT_Qws4rbf_unknown.csv', index=False)
+data2.head()
