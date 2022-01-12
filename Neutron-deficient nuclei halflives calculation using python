@@ -1,0 +1,222 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+from numpy import sqrt,arccos,exp,pi,log,log10,linspace,zeros,vectorize,array,arange
+from scipy.optimize import fsolve
+from scipy.integrate import quad
+
+#Importing the data into a pandas dataframe
+data1 = pd.read_csv("/Users/admin/Documents/Amir's Thesis/Data/Halflife_Qexpt.csv")
+A,Z,Q,ell,Texpt = data1['A'], data1['Z'], data1['Qalpha'], data1['ell'], data1['Texpt']
+
+#Writing a function that returns calculated values for CPPM (Coulomb and proximity potential model) 
+def CPPM2010(A,Z,Q,ell):
+    A1=4;Z1=2;N=A-Z
+    b=1.0;
+    tmp1=1.0/3;esqr=1.43998 # value in MeV-fm
+    mp=931.494;hbar=197.33 # MeV-fm
+    A2=A-A1;Z2=Z-Z1;mu=(A1*A2/A)
+    R1=1.28*A1**tmp1-0.76+0.8*A1**(-tmp1)
+    R2=1.28*A2**tmp1-0.76+0.8*A2**(-tmp1)
+    C1=R1-(b**2)/R1;C2=R2-(b**2)/R2
+    Rbar=(C1*C2)/(C1+C2)
+    As=(N-Z)/(N+Z);tmp3=As**2
+    gamma=1.460734*(1-4*(tmp3)) # MeV fm
+    def phi(ep):
+        if (ep<=1.2511):
+            yout=-0.5*(ep-2.54)**2-0.0852*(ep-2.54)**3
+        elif (ep>=1.2511):
+            yout=-3.437*exp(-ep/0.75)
+        return yout
+    
+    #A function that returns the calculated values for the nuclear potential
+    def VN(r):
+        ep=(r-C1-C2)/b
+        vn=4*pi*b*Rbar*gamma*phi(ep)
+        return vn
+    
+    Rc=1.24*(R1+R2)
+
+    #A function that returns the calculated values for the Coulomb potential
+    def Vc(r):
+        k1=Z1*Z2*esqr;tmp7=r**2/Rc**2;tmp8=3-tmp7;tmp9=0.5*tmp8/Rc
+        if (r>=Rc):
+            value=k1/r
+        elif (r<=Rc):
+            value=k1*tmp9
+        return value
+
+    #A function that returns the calculated values for the centrifugal term
+    def Vell(r):
+        return (ell*(ell+1)*(hbar**2))/(2*mu*mp*r**2)
+    #def Vell(R):
+    #    return (((ell+0.5)**2)*hbar**2)/(2*mu*mp*R**2)
+
+    #A function that returns the summation of the calculated values for the nuclear, Coulomb and centrifugal term
+    def Vtotal(r):
+        return VN(r)+Vc(r)+Vell(r)
+    tmp10=0.056+0.039*exp((4-A2)/2.5) # MeV
+    Ev=Q*tmp10
+
+    def ftmp(r):
+        return Vtotal(r)-Q
+    Rinclue=R1+R2;Routclue=(Z1*Z2*esqr)/Q
+    Rin = fsolve(ftmp, Rinclue);Rout = fsolve(ftmp, Routclue)
+
+    def Kintegrand(r):
+        return sqrt(2*mu*mp*abs(Vtotal(r)-Q))
+    Kint,err=quad(Kintegrand,Rin,Rout)
+    Kfinal=(-2.0/hbar)*Kint;P = exp(Kfinal)
+    h=4.135669e-21 # MeV s
+    Thalf=log(2)/(P*1e20);Thalfnu=(h*log(2))/(2*Ev*P)
+    logT=log10(Thalf);logTnu=log10(Thalfnu)
+    return (logT)
+
+#Writing a function that returns calculated values for CPPMT (Temperature dependent Coulomb and proximity potential model)
+def CPPM2010Temp(A,Z,Q,ell):
+    from numpy import roots,isreal
+    A1=4;Z1=2;N=A-Z
+    b0=1.0;tmp1=1.0/3;esqr=1.43998 # value in MeV-fm
+    mp=931.494;hbar=197.33 # MeV-fm
+    A2=A-A1;Z2=Z-Z1;mu=(A1*A2/A);Ekin = (A2/A)*Q;Estar = Ekin+Q # excitation energy
+
+    T1,T2 = roots([(1.0/9)*A,-1,-1*Estar])
+    T1r=isreal(T1);T2r=isreal(T2)
+    if (T1>0) and (T1r==True):
+        T=T1
+    elif (T2>0) and (T2r==True):
+        T=T2
+    b=b0*(1+0.009*T**2) # temp dependent b(T)
+    R10=1.28*A1**tmp1-0.76+0.8*A1**(-tmp1)
+    R20=1.28*A2**tmp1-0.76+0.8*A2**(-tmp1)
+    R1=R10*(1+0.0005*T**2) # temp dependent R_1 (T)
+    R2=R20*(1+0.0005*T**2) # temp dependent R_1 (T)
+    C1=R1-(b**2)/R1;C2=R2-(b**2)/R2
+    Rbar=(C1*C2)/(C1+C2);As=(N-Z)/(N+Z);tmp3=As**2
+    Rc=1.24*(R1+R2);Ecoul=Z1*Z2*esqr/Rc
+    Tb1,Tb2=roots([(1.0/9)*A,-1,-1*Ecoul])
+    Tb1r=isreal(Tb1);Tb2r=isreal(Tb2)
+    if (Tb1>0) and (Tb1r==True):
+        Tb=Tb1
+    elif (Tb2>0) and (Tb2r==True):
+        Tb=Tb2
+
+    gamma0=1.460734*(1-4*(tmp3));gamma=gamma0*((1-0.07*T)**2)
+    tmpg=1 - ((T-Tb)/Tb)
+    def phi(ep):
+        if (ep<=1.2511):
+            yout=-0.5*(ep-2.54)**2-0.0852*(ep-2.54)**3
+        elif (ep>=1.2511):
+            yout=-3.437*exp(-ep/0.75)
+        return yout
+
+    def VN(r):
+        ep=(r-C1-C2)/b
+        vn=4*pi*b*Rbar*gamma*phi(ep)
+        return vn
+
+    def Vc(r):
+        k1=Z1*Z2*esqr;tmp7=r**2/Rc**2
+        tmp8=3-tmp7;tmp9=0.5*tmp8/Rc
+        if (r>=Rc):
+            value=k1/r
+        elif (r<=Rc):
+            value=k1*tmp9
+        return value
+    def Vell(r):
+        return (ell*(ell+1)*(hbar**2))/(2*mu*mp*r**2)
+    #def Vell(R):
+    #    return (((ell+0.5)**2)*hbar**2)/(2*mu*mp*R**2)
+    def Vtotal(r):
+        return VN(r)+Vc(r)+Vell(r)
+    tmp10=0.056+0.039*exp((4-A2)/2.5) # MeV
+    Ev=Q*tmp10
+
+    def ftmp(r):
+        return Vtotal(r)-Q
+    Rinclue=R1+R2;Routclue=(Z1*Z2*esqr)/Q
+    Rin = fsolve(ftmp, Rinclue);Rout = fsolve(ftmp, Routclue)
+    def Kintegrand(r):
+        return sqrt(2*mu*mp*abs(Vtotal(r)-Q))
+    Kint,err=quad(Kintegrand,Rin,Rout)
+    #Kint,err=quad(Kintegrand,Rlower,Rupper)
+    Kfinal=(-2.0/hbar)*Kint;P = exp(Kfinal)
+    h=4.135669e-21 # MeV s
+    Thalf=log(2)/(P*1e20);Thalfnu=(h*log(2))/(2*Ev*P)
+    logT1=log10(Thalf);logTnu=log10(Thalfnu)
+    return (logT1)
+    return (T)
+
+#Writing a function that returns calculated values for Royer formula
+def royer(A,Z,Q,ell):
+    N=A-Z
+    if (Z%2==0 and N%2==0):
+        a=-25.59937; b=-1.1361595;c=1.5771356;d=0;e=0
+    elif (Z%2==0 and N%2!=0):
+        a=-25.00305;b=-1.132666;c=1.5622801;d=6.9116E-07;e=0.001721
+    elif (Z%2!=0 and N%2==0):
+        a=-24.30631;b=-1.186070;c=1.578667;d=9.7862E-07;e=6.312E-05
+    elif (Z%2!=0 and N%2!=0):
+        a=-25.95298;b=-1.108809;c=1.584831;d=9.7423E-7;e=-9.653E-05
+    tmp1=1.0/6;tmp2=0.5    
+    tmpr=(ell*(ell+1))**(0.25)
+    tmpr2=(1-((-1)**ell))
+    royer = a+b*(A**tmp1)*np.sqrt(Z)+c*Z/np.sqrt(Q)+(d*A*N*Z*(tmpr))/Q + e*A*tmpr2
+    return royer
+
+#Writing a function that returns calculated values for new Ren b formula
+def NRB(A,Z,Q,ell):
+    A_1=4; A_2= A -4
+    Z_1=2; Z_2= Z -Z_1
+    mu=(A_1*A_2)/(A_1+A_2)
+    N=A-Z
+    I=(N-Z)/A
+    if (Z%2==0 and N%2==0):
+        a=0.4094459; b=-1.4110974;c=-15.225959;d=8.6686904;e=-49.598898;f=0      #even-even
+    elif (Z%2==0 and N%2!=0):
+        a=0.4094622;b=-1.381496;c=-14.8569496;d=-9.51162686;e=27.501183;f=0.03226334  #even-odd
+    elif (Z%2!=0 and N%2==0):
+        a=0.4203022;b=-1.409269;c=-15.3943;d=-7.258674;e=7.135752;f=0.0298348    #odd-even
+    elif (Z%2!=0 and N%2!=0):
+        a=0.4134687;b=-1.4380064;c=-14.53357;d=1.704849;e=1.272812;f=0.0085523      #odd-odd
+    NRB = (a*np.sqrt(mu)*Z_1*Z_2)/(np.sqrt(Q)) + b*(np.sqrt(mu*Z_1*Z_2)) + c + d*I + e*I**2 + f*(ell*(ell+1))
+    return NRB
+
+#Inputing the values of the data into the defined functions above
+yCPPM2010expt = np.zeros(len(A))
+yCPPM2010Tempexpt = np.zeros(len(A))
+yroyer = np.zeros(len(A))
+yNRB = np.zeros(len(A))
+for i in range(0,len(A)):
+    yCPPM2010expt[i] = CPPM2010(A[i],Z[i],Q[i],ell[i])
+    yCPPM2010Tempexpt[i] = CPPM2010Temp(A[i],Z[i],Q[i],ell[i])
+    yroyer[i] = royer(A[i],Z[i],Q[i],ell[i])
+    yNRB[i] = NRB(A[i],Z[i],Q[i],ell[i])
+
+#Writing the results obtained to the dataframe
+data1['CPPM'] = yCPPM2010expt
+data1['CPPMT'] = yCPPM2010Tempexpt
+data1['Royer'] = yroyer
+data1['NRB'] = yNRB
+data1['Texpt'] = Texpt
+
+#writing the updated dataframe into a csv file
+data1.to_csv('CPPMCPPMT_Qexpt_Neutron_def.csv', index=False)
+data1
+
+#Plotting a graph to visualize the results obtained computationally and compare it with already existing experimental data
+import matplotlib.pyplot as plt
+plt.plot(data1['A'], Texpt, color = 'black', label = 'Expt', marker='o')
+plt.plot(data1['A'], yCPPM2010expt, color = 'blue', label = 'CPPM', marker='D')
+plt.plot(data1['A'], yCPPM2010Tempexpt, color = 'green', label = 'CPPMT', marker='s')
+plt.plot(data1['A'], data1['Royer'], color = 'violet', label = 'Royer', marker='*')
+plt.plot(data1['A'], data1['NRB'], color = 'red', label = 'NRB', marker='+')
+plt.plot(sort['A'], sort['logTANN'],color = 'brown', label = 'ANN', marker='^' )
+#plt.title('Calculated Neutron Deficient Nuclei Half-life with Qexpt')
+plt.xlabel('Mass Number (A)')
+plt.ylabel('log[T$_{1/2}$(s)]')
+plt.legend(loc='upper left', prop={'size':9})
+plt.savefig('CPPM-CPPMT.pdf')
+plt.show()
+
